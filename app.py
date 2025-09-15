@@ -145,15 +145,11 @@ def eval_step3_alerts(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
 def final_decision_text(rouges: List[str], oranges: List[str]) -> Tuple[str, str]:
     if rouges:
-        motifs = "
-".join([f"• {m}" for m in rouges])
-        return "red", f"Crédit refusé pour motif(s) suivant(s) :
-{motifs}"
+        motifs = "\\n".join([f"• {m}" for m in rouges])
+        return "red", f"Crédit refusé pour motif(s) suivant(s) :\\n{motifs}"
     if oranges:
-        motifs = "
-".join([f"• {m}" for m in oranges])
-        return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :
-{motifs}"
+        motifs = "\\n".join([f"• {m}" for m in oranges])
+        return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :\\n{motifs}"
     return "green", "Crédit accepté"
 
 
