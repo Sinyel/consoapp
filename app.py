@@ -2,8 +2,10 @@
 Credit Decision App
 
 Mise à jour Étape 2 :
-- Les questions complémentaires (si impayés anciens) utilisent désormais des **radios Oui/Non** au lieu de simples checkboxes.
-- Par défaut, la valeur est positionnée sur **Non**.
+- Lorsque `changement_employeur` ou `amelioration_employeur` est vrai **et** que `taux_endettement > 0.25`,
+  la décision n’est plus un refus rouge mais une **condition orange**.
+- Le message est :
+  "Condition (orange) : limiter le taux d'endettement à 25% car impayés anciens".
 """
 
 import datetime
@@ -178,6 +180,8 @@ def run_streamlit_app():
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
                     st.error(resultat)
+                elif "ORANGE" in resultat:
+                    st.warning(resultat)
                 else:
                     st.session_state.step = 3
 
@@ -200,7 +204,7 @@ def run_streamlit_app():
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
                     st.error(resultat)
-                elif "ORANGE" in resultat:
+                elif "ORANGE" in resultat or "Condition (orange)" in resultat:
                     st.warning(resultat)
                 else:
                     st.success(resultat)
