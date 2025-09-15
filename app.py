@@ -139,13 +139,12 @@ def eval_step3_alerts(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
 def final_decision_text(rouges: List[str], oranges: List[str]) -> Tuple[str, str]:
     if rouges:
-        motifs = "\\n".join([f"• {m}" for m in rouges])
-        return "red", f"Crédit refusé pour motif(s) suivant(s) :\\n{motifs}"
+        motifs = "\n".join([f"• {m}" for m in rouges])
+        return "red", f"Crédit refusé pour motif(s) suivant(s) :\n{motifs}"
     if oranges:
-        motifs = "\\n".join([f"• {m}" for m in oranges])
-        return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :\\n{motifs}"
+        motifs = "\n".join([f"• {m}" for m in oranges])
+        return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :\n{motifs}"
     return "green", "Crédit accepté"
-
 
 # ------------------ Streamlit UI ------------------
 
@@ -186,7 +185,7 @@ def run_streamlit_app():
 
         # Bouton Historique en bas, espacé
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        hist0 = st.button("🗂️ Voir l'historique des simulations", key="hist0")("🗂️ Voir l'historique des simulations", key="hist0")
+        hist0 = st.button("🗂️ Voir l'historique des simulations", key="hist0")
         if hist0:
             st.session_state.show_history = True
 
@@ -232,7 +231,7 @@ def run_streamlit_app():
 
         # Bouton Historique en bas, espacé
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        hist1 = st.button("🗂️ Voir l'historique des simulations", key="hist1")("🗂️ Voir l'historique des simulations", key="hist1")
+        hist1 = st.button("🗂️ Voir l'historique des simulations", key="hist1")
         if hist1:
             st.session_state.show_history = True
 
