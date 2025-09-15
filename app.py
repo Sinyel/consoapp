@@ -37,6 +37,7 @@ password_input = st.text_input("Entrez le mot de passe :", type="password")
 if password_input != PASSWORD:
     st.warning("Accès refusé. Entrez le bon mot de passe pour continuer.")
     st.stop()
+st.rerun()
   
 # ------------------ Helpers ------------------
 
