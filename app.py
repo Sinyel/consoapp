@@ -139,11 +139,15 @@ def eval_step3_alerts(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
 def final_decision_text(rouges: List[str], oranges: List[str]) -> Tuple[str, str]:
     if rouges:
-        motifs = "\n".join([f"• {m}" for m in rouges])
-        return "red", f"Crédit refusé pour motif(s) suivant(s) :\n{motifs}"
+        motifs = "
+".join([f"• {m}" for m in rouges])
+        return "red", f"Crédit refusé pour motif(s) suivant(s) :
+{motifs}"
     if oranges:
-        motifs = "\n".join([f"• {m}" for m in oranges])
-        return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :\n{motifs}"
+        motifs = "
+".join([f"• {m}" for m in oranges])
+        return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :
+{motifs}"
     return "green", "Crédit accepté"
 
 
@@ -182,22 +186,25 @@ def run_streamlit_app():
             with cols[0]:
                 back0 = st.form_submit_button("⬅ Retour", disabled=True, use_container_width=True)
             with cols[1]:
-                can_continue = is_filled(nom_prenom) and is_filled(charge_clientele)
-                next0 = st.form_submit_button("Suivant", disabled=not can_continue, use_container_width=True)
+                next0 = st.form_submit_button("Suivant", use_container_width=True)
 
         # Bouton Historique en bas, espacé
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        hist0 = st.button("🗂️ Voir l'historique des simulations", key="hist0")
+        hist0 = st.button("🗂️ Voir l'historique des simulations", key="hist0")("🗂️ Voir l'historique des simulations", key="hist0")
         if hist0:
             st.session_state.show_history = True
 
         if next0:
-            st.session_state.form_data.update({
-                "numero_client": num_client.strip(),
-                "nom_prenom_client": nom_prenom.strip(),
-                "charge_clientele": charge_clientele.strip(),
-            })
-            st.session_state.step = 1
+            # Validation stricte après submit (les champs par défaut doivent compter comme remplis)
+            if not is_filled(nom_prenom) or not is_filled(charge_clientele):
+                st.error("Merci de renseigner le nom du client et le chargé de clientèle avant de continuer.")
+            else:
+                st.session_state.form_data.update({
+                    "numero_client": (num_client or "").strip(),
+                    "nom_prenom_client": nom_prenom.strip(),
+                    "charge_clientele": charge_clientele.strip(),
+                })
+                st.session_state.step = 1
 
     # ---- Étape 1 : Données financières & calcul endettement ----
     elif st.session_state.step == 1:
@@ -225,37 +232,41 @@ def run_streamlit_app():
             with cols[0]:
                 back1 = st.form_submit_button("⬅ Retour", use_container_width=True)
             with cols[1]:
-                can_continue = all([ok_rev, ok_chg, ok_mnt]) and revenu > 0 and duree_credit_mois >= 1
-                if type_contrat == "CDD" and date_fin_cdd is None:
-                    can_continue = False
-                next1 = st.form_submit_button("Suivant", disabled=not can_continue, use_container_width=True)
+                next1 = st.form_submit_button("Suivant", use_container_width=True)
 
         # Bouton Historique en bas, espacé
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        hist1 = st.button("🗂️ Voir l'historique des simulations", key="hist1")
+        hist1 = st.button("🗂️ Voir l'historique des simulations", key="hist1")("🗂️ Voir l'historique des simulations", key="hist1")
         if hist1:
             st.session_state.show_history = True
 
         if back1:
             st.session_state.step = 0
         if next1:
-            st.session_state.form_data.update({
-                "revenu_mensuel": int(revenu),
-                "charges_mensuelles": int(charges),
-                "montant_demande": int(montant),
-                "duree_credit_mois": int(duree_credit_mois),
-                "taux_endettement": float(taux_estime),
-                "type_contrat": type_contrat,
-                "date_fin_cdd": date_fin_cdd,
-                "date_debut_credit": date_debut_credit,
-                "date_fin_credit": date_fin_credit,
-            })
-            r, o = eval_step1_alerts(st.session_state.form_data)
-            st.session_state.alerts_red.extend(r)
-            st.session_state.alerts_orange.extend(o)
-            for msg in r + o:
-                st.warning(msg)
-            st.session_state.step = 2
+            # Validation stricte APRÈS submit
+            valid = all([ok_rev, ok_chg, ok_mnt]) and revenu > 0 and duree_credit_mois >= 1
+            if type_contrat == "CDD" and date_fin_cdd is None:
+                valid = False
+            if not valid:
+                st.error("Merci de renseigner correctement tous les champs de l'étape 1 avant de continuer.")
+            else:
+                st.session_state.form_data.update({
+                    "revenu_mensuel": int(revenu),
+                    "charges_mensuelles": int(charges),
+                    "montant_demande": int(montant),
+                    "duree_credit_mois": int(duree_credit_mois),
+                    "taux_endettement": float(taux_estime),
+                    "type_contrat": type_contrat,
+                    "date_fin_cdd": date_fin_cdd,
+                    "date_debut_credit": date_debut_credit,
+                    "date_fin_credit": date_fin_credit,
+                })
+                r, o = eval_step1_alerts(st.session_state.form_data)
+                st.session_state.alerts_red.extend(r)
+                st.session_state.alerts_orange.extend(o)
+                for msg in r + o:
+                    st.warning(msg)
+                st.session_state.step = 2
 
     # ---- Étape 2 : Compte / impayés ----
     elif st.session_state.step == 2:
