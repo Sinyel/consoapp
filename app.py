@@ -6,14 +6,17 @@ Ce fichier contient :
 - une application Streamlit multi-étapes (si Streamlit est installé),
 - un mode CLI / suite de tests qui s'exécute automatiquement si Streamlit n'est pas présent.
 
-Corrections appliquées suite à ton retour sur l'étape 1 :
-1) Le taux d'endettement est interprété correctement — l'UI accepte soit une valeur décimale (ex. 0.6) soit un pourcentage (ex. 60) ; la valeur est normalisée en décimal avant d'être évaluée. Une valeur strictement supérieure à 1/3 déclenche immédiatement un refus (rouge).
-2) Le champ "Date fin CDD" n'est affiché **que** si l'utilisateur choisit "CDD" comme type de contrat.
-3) On demande la **durée du crédit (en mois)** dès l'étape 1 ; l'application calcule la **date de début du crédit = aujourd'hui + 15 jours** et la **date de fin du crédit** en ajoutant la durée demandée. La règle CDD -> refus est : si `date_fin_cdd < date_fin_du_crédit_demandé` alors refus (rouge).
+Mises à jour (Étape 2) :
+1) `Impayés anciens` devient **binaire** (checkbox) ; plus de saisie de nombre.
+2) Si `Impayés anciens = Oui`, on pose deux questions :
+   - `Changement d’employeur ?` (checkbox)
+   - `Amélioration de la situation de l’employeur ?` (checkbox)
+   - Si au moins une est **Oui** → on vérifie **taux d'endettement ≤ 25%** (0.25).
+       - Si `taux > 25%` → **Refus** : "limiter le taux d'endettement à 25% car impayés anciens".
+       - Sinon → on peut continuer.
+   - Si les deux sont **Non** → **Refus** : "Pas de changement chez l'employeur suite anciens impayés".
 
-Remarques :
-- La fonction `decision_credit` est résistante aux validations étape-par-étape : elle ne retourne pas de faux refus quand un champ attendu n'est pas encore fourni (par ex. lors de la validation partielle après l'étape 1), sauf pour les conditions qui peuvent être évaluées immédiatement (ex. taux d'endettement).
-- Si Streamlit n'est pas disponible, le script lancera la suite de tests CLI et enregistrera un CSV `historique_credit_cli.csv`.
+Les validations restent compatibles avec les formulaires multi-étapes.
 """
 
 import datetime
@@ -53,9 +56,7 @@ def _ensure_date(obj):
 
 
 def add_months(sourcedate: datetime.date, months: int) -> datetime.date:
-    """Add months to a date reliably (rollover years/months).
-    Uses calendar.monthrange to clamp day of month.
-    """
+    """Add months to a date reliably (rollover years/months)."""
     if months <= 0:
         return sourcedate
     month = sourcedate.month - 1 + months
@@ -71,51 +72,48 @@ def add_months(sourcedate: datetime.date, months: int) -> datetime.date:
 
 def decision_credit(data: Dict[str, Any]) -> str:
     """
-    Applique les règles de décision. Le paramètre `data` est un dictionnaire qui peut être
-    partiellement rempli (utile pour des validations étape par étape). La fonction retourne :
-      - 'Refus (rouge) : ...',
-      - 'Risque ORANGE : ...',
-      - 'ACCEPTE'
+    Applique les règles de décision. Le paramètre `data` peut être partiel (validation étape-par-étape).
+    Retourne : 'Refus (rouge) : ...' | 'Risque ORANGE : ...' | 'ACCEPTE'
     """
 
-    # Normalisation / valeurs par défaut sécurisées pour validations partielles
+    # Taux d'endettement (normalisation : si >1 on suppose un pourcentage)
     raw_taux = data.get("taux_endettement", 0.0)
     try:
         taux_endettement = float(raw_taux)
     except Exception:
         taux_endettement = 0.0
-
-    # Interprétation intelligente : si user donne > 1 on considère que c'est un pourcentage (ex. 60 -> 0.6)
     if taux_endettement > 1.0:
         taux_endettement = taux_endettement / 100.0
 
     type_contrat = data.get("type_contrat", "CDI")
 
+    # Crédit: durée et dates (début = today + 15 jours)
     duree_credit_mois = int(data.get("duree_credit_mois", 0))
-    # Date de début = aujourd'hui + 15 jours suivant la règle demandée
     if duree_credit_mois > 0:
         date_debut_credit = datetime.date.today() + datetime.timedelta(days=15)
         date_fin_credit = add_months(date_debut_credit, duree_credit_mois)
     else:
         date_debut_credit = None
-        date_fin_credit = datetime.date.max  # permet d'éviter des refus si la durée n'est pas encore saisie
+        date_fin_credit = datetime.date.max
 
-    # Safety-extracted employer / account fields with permissive defaults
+    # Données compte / employeur avec défauts permissifs pour validation partielle
     anciennete_compte = int(data.get("anciennete_compte", 999))
     impayes_actuels = bool(data.get("impayes_actuels", False))
-    anciens_impayes = int(data.get("anciens_impayes", 0))
+    impayes_anciens = bool(data.get("impayes_anciens", False))
+    changement_employeur = bool(data.get("changement_employeur", False))
+    amelioration_employeur = bool(data.get("amelioration_employeur", False))
+
     anciennete_employeur = int(data.get("anciennete_employeur", 999))
     employeur_connu = data.get("employeur_connu", "Oui")
     suspicion_employeur = bool(data.get("suspicion_employeur", False))
 
-    # 1) Endettement — condition immédiate rouge si > 1/3
+    # 1) Endettement — refus immédiat si > 1/3
     if taux_endettement > (1.0 / 3.0):
         return "Refus (rouge) : Endettement trop élevé"
 
-    # 2) Contrat CDD — on vérifie la date de fin du contrat seulement si le champ a été fourni
+    # 2) CDD — refuser si le contrat se termine avant la fin du crédit demandé
     if type_contrat == "CDD":
-        raw_date_fin_cdd = data.get("date_fin_cdd", None)
-        date_fin_cdd = _ensure_date(raw_date_fin_cdd)
+        date_fin_cdd = _ensure_date(data.get("date_fin_cdd", None))
         if date_fin_cdd is not None and date_fin_cdd < date_fin_credit:
             return "Refus (rouge) : CDD se termine avant la fin du crédit demandé"
 
@@ -123,11 +121,20 @@ def decision_credit(data: Dict[str, Any]) -> str:
     if anciennete_compte < 3:
         return "Refus (rouge) : Client trop récent"
 
-    # 4) Impayés
+    # 4) Impayés actuels
     if impayes_actuels:
         return "Refus (rouge) : Impayés actuels dans les 6 derniers mois"
-    if anciens_impayes > 1:
-        return "Refus (rouge) : Trop d'anciens impayés"
+
+    # 4bis) Impayés anciens (nouvelle logique binaire)
+    if impayes_anciens:
+        if changement_employeur or amelioration_employeur:
+            # Au moins une réponse positive -> vérifier taux <= 25%
+            if taux_endettement > 0.25:
+                return "Refus (rouge) : limiter le taux d'endettement à 25% car impayés anciens"
+            # sinon on peut continuer (pas de décision finale ici)
+        else:
+            # Les deux réponses sont négatives -> refus
+            return "Refus (rouge) : Pas de changement chez l'employeur suite anciens impayés"
 
     # 5) Ancienneté chez l'employeur
     if anciennete_employeur < 3:
@@ -136,7 +143,7 @@ def decision_credit(data: Dict[str, Any]) -> str:
         if employeur_connu == "Non" or suspicion_employeur:
             return "Risque ORANGE : Employeur non fiable ou suspicion"
 
-    # 6) Suspicion employeur
+    # 6) Suspicion employeur (générale)
     if suspicion_employeur:
         return "Risque ORANGE : Vérification nécessaire sur employeur"
 
@@ -162,21 +169,18 @@ def run_streamlit_app():
     if st.session_state.step == 1:
         st.subheader("Étape 1 — Informations de base")
 
-        # On accepte soit un décimal 0-1, soit un pourcentage 0-100 (auto-detect)
         raw_taux = st.number_input(
             "Taux d'endettement (ex. 0.60 = 60% ou 60)", min_value=0.0, max_value=100.0, step=0.1, value=0.3
         )
-        st.caption("Saisie acceptée : 0.6 ou 60 (les deux). Les valeurs >1 seront interprétées comme des pourcentages.")
+        st.caption("Vous pouvez saisir 0.6 ou 60. Les valeurs >1 sont interprétées comme pourcentage.")
 
         duree_credit_mois = st.number_input("Durée du crédit (mois)", min_value=1, value=12)
-
         type_contrat = st.selectbox("Type de contrat", ["CDI", "CDD"])
 
         date_fin_cdd = None
         if type_contrat == "CDD":
             date_fin_cdd = st.date_input("Date fin CDD (si CDD)", value=(datetime.date.today() + datetime.timedelta(days=180)))
 
-        # Calcul des dates de crédit pour affichage
         date_debut_credit = datetime.date.today() + datetime.timedelta(days=15)
         date_fin_credit = add_months(date_debut_credit, int(duree_credit_mois))
         st.info(f"Date de début estimée du crédit : {date_debut_credit} — Date de fin estimée : {date_fin_credit}")
@@ -184,10 +188,9 @@ def run_streamlit_app():
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Suivant"):
-                # Normalisation du taux (auto-detect)
                 taux_normalise = float(raw_taux)
                 if taux_normalise > 1.0:
-                    taux_normalise = taux_normalise / 100.0
+                    taux_normalise /= 100.0
 
                 st.session_state.form_data.update({
                     "taux_endettement": taux_normalise,
@@ -198,7 +201,6 @@ def run_streamlit_app():
                     "date_fin_credit": date_fin_credit,
                 })
 
-                # Vérification immédiate des règles évaluables en étape 1
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
                     st.error(resultat)
@@ -210,7 +212,14 @@ def run_streamlit_app():
         st.subheader("Étape 2 — Compte et historique")
         anciennete_compte = st.number_input("Ancienneté du compte (mois)", min_value=0)
         impayes_actuels = st.checkbox("Impayés actuels (6 derniers mois)")
-        anciens_impayes = st.number_input("Nb d'anciens impayés > 1 mois", min_value=0)
+        impayes_anciens = st.checkbox("Impayés anciens (il y a plus de 6 mois)")
+
+        changement_employeur = False
+        amelioration_employeur = False
+        if impayes_anciens:
+            st.markdown("**Informations complémentaires (car impayés anciens cochés)**")
+            changement_employeur = st.checkbox("Changement d’employeur ?")
+            amelioration_employeur = st.checkbox("Amélioration de la situation de l’employeur ?")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -221,7 +230,9 @@ def run_streamlit_app():
                 st.session_state.form_data.update({
                     "anciennete_compte": int(anciennete_compte),
                     "impayes_actuels": bool(impayes_actuels),
-                    "anciens_impayes": int(anciens_impayes),
+                    "impayes_anciens": bool(impayes_anciens),
+                    "changement_employeur": bool(changement_employeur),
+                    "amelioration_employeur": bool(amelioration_employeur),
                 })
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
@@ -256,11 +267,10 @@ def run_streamlit_app():
                 else:
                     st.success(resultat)
 
-                # Sauvegarde dans l'historique
                 st.session_state.historique.append({**st.session_state.form_data, "Décision": resultat})
                 st.session_state.step = 1
 
-    # Affichage historique + export
+    # Historique + export
     if st.session_state.historique:
         df = pd.DataFrame(st.session_state.historique)
         st.subheader("Historique des simulations")
@@ -283,66 +293,48 @@ def run_cli_tests():
     future = now + datetime.timedelta(days=365)
 
     test_cases = [
-        {
-            "name": "endettement_trop_eleve (rouge)",
-            "input": {"taux_endettement": 0.6, "duree_credit_mois": 12},
-            "expected_contains": "Refus",
-        },
-        {
-            "name": "CDD termine (rouge)",
-            "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": yesterday, "duree_credit_mois": 12},
-            "expected_contains": "Refus",
-        },
-        {
-            "name": "CDD assez long (ok)",
-            "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": future, "duree_credit_mois": 6},
-            "expected_contains": "ACCEPTE",
-        },
-        {
-            "name": "client_trop_recent (rouge)",
-            "input": {"taux_endettement": 0.10, "anciennete_compte": 1, "duree_credit_mois": 12},
-            "expected_contains": "Refus",
-        },
-        {
-            "name": "impayes_actuels (rouge)",
-            "input": {"taux_endettement": 0.10, "impayes_actuels": True, "duree_credit_mois": 12},
-            "expected_contains": "Refus",
-        },
-        {
-            "name": "anciens_impayes_trop (rouge)",
-            "input": {"taux_endettement": 0.10, "anciens_impayes": 2, "duree_credit_mois": 12},
-            "expected_contains": "Refus",
-        },
-        {
-            "name": "anciennete_employeur_court (rouge)",
-            "input": {"taux_endettement": 0.10, "anciennete_employeur": 2, "duree_credit_mois": 12},
-            "expected_contains": "Refus",
-        },
-        {
-            "name": "employeur_non_fiable (orange)",
-            "input": {"taux_endettement": 0.05, "anciennete_employeur": 6, "employeur_connu": "Non", "duree_credit_mois": 12},
-            "expected_contains": "ORANGE",
-        },
-        {
-            "name": "suspicion_employeur (orange)",
-            "input": {"taux_endettement": 0.05, "anciennete_employeur": 24, "suspicion_employeur": True, "duree_credit_mois": 12},
-            "expected_contains": "ORANGE",
-        },
-        {
-            "name": "accepte (ok)",
-            "input": {"taux_endettement": 0.10, "anciennete_compte": 12, "anciennete_employeur": 24, "duree_credit_mois": 12},
-            "expected_contains": "ACCEPTE",
-        },
-        {
-            "name": "partial_after_step1_no_rouge",
-            "input": {"taux_endettement": 0.20, "type_contrat": "CDI", "duree_credit_mois": 12},
-            "expected_contains": "ACCEPTE",
-        },
-        {
-            "name": "partial_after_step1_cdd_expired (rouge)",
-            "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": yesterday, "duree_credit_mois": 12},
-            "expected_contains": "Refus",
-        },
+        {"name": "endettement_trop_eleve (rouge)",
+         "input": {"taux_endettement": 0.6, "duree_credit_mois": 12},
+         "expected_contains": "Refus"},
+        {"name": "CDD termine (rouge)",
+         "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": yesterday, "duree_credit_mois": 12},
+         "expected_contains": "Refus"},
+        {"name": "CDD assez long (ok)",
+         "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": future, "duree_credit_mois": 6},
+         "expected_contains": "ACCEPTE"},
+        {"name": "client_trop_recent (rouge)",
+         "input": {"taux_endettement": 0.10, "anciennete_compte": 1, "duree_credit_mois": 12},
+         "expected_contains": "Refus"},
+        {"name": "impayes_actuels (rouge)",
+         "input": {"taux_endettement": 0.10, "impayes_actuels": True, "duree_credit_mois": 12},
+         "expected_contains": "Refus"},
+        {"name": "impayes_anciens_sans_changement (rouge)",
+         "input": {"taux_endettement": 0.10, "impayes_anciens": True, "changement_employeur": False, "amelioration_employeur": False, "duree_credit_mois": 12},
+         "expected_contains": "Refus"},
+        {"name": "impayes_anciens_avec_changement_taux>25 (rouge)",
+         "input": {"taux_endettement": 0.30, "impayes_anciens": True, "changement_employeur": True, "amelioration_employeur": False, "duree_credit_mois": 12},
+         "expected_contains": "Refus"},
+        {"name": "impayes_anciens_avec_changement_taux<=25 (continue)",
+         "input": {"taux_endettement": 0.20, "impayes_anciens": True, "amelioration_employeur": True, "duree_credit_mois": 12, "anciennete_compte": 12, "anciennete_employeur": 24},
+         "expected_contains": "ACCEPTE"},
+        {"name": "anciennete_employeur_court (rouge)",
+         "input": {"taux_endettement": 0.10, "anciennete_employeur": 2, "duree_credit_mois": 12},
+         "expected_contains": "Refus"},
+        {"name": "employeur_non_fiable (orange)",
+         "input": {"taux_endettement": 0.05, "anciennete_employeur": 6, "employeur_connu": "Non", "duree_credit_mois": 12},
+         "expected_contains": "ORANGE"},
+        {"name": "suspicion_employeur (orange)",
+         "input": {"taux_endettement": 0.05, "anciennete_employeur": 24, "suspicion_employeur": True, "duree_credit_mois": 12},
+         "expected_contains": "ORANGE"},
+        {"name": "accepte (ok)",
+         "input": {"taux_endettement": 0.10, "anciennete_compte": 12, "anciennete_employeur": 24, "duree_credit_mois": 12},
+         "expected_contains": "ACCEPTE"},
+        {"name": "partial_after_step1_no_rouge",
+         "input": {"taux_endettement": 0.20, "type_contrat": "CDI", "duree_credit_mois": 12},
+         "expected_contains": "ACCEPTE"},
+        {"name": "partial_after_step1_cdd_expired (rouge)",
+         "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": yesterday, "duree_credit_mois": 12},
+         "expected_contains": "Refus"},
     ]
 
     rows = []
@@ -384,5 +376,3 @@ if __name__ == "__main__":
     else:
         print("Streamlit not installé — lancement du mode CLI / tests...\n")
         run_cli_tests()
-
-# Fin du fichier
