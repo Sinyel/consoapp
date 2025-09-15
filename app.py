@@ -141,6 +141,7 @@ def eval_step3_alerts(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 # ------------------ Décision finale agrégée ------------------
 
 def final_decision_text(rouges: List[str], oranges: List[str]) -> Tuple[str, str]:
+    """Construit le texte de décision finale sans erreurs de guillemets."""
     if rouges:
         motifs = "
 ".join([f"• {m}" for m in rouges])
