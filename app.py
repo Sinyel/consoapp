@@ -1,9 +1,18 @@
 """
-Credit Decision App — Étapes stables (anti double-clic) + Résumé décision
+Credit Decision App — Rebase propre avec Étape 0, calcul d’endettement, alertes agrégées, sliders, et historique à la demande
 
-À partir de ta base, corrections :
-- Anti double-clic : on rafraîchit l'app immédiatement après un changement d'étape (st.rerun()).
-- Décision finale : passe à une Étape 4 “Résumé” qui affiche la décision, sans reset immédiat.
+Ce fichier repart de ta base et réintègre les exigences validées :
+- Étape 0 (Identification) : Numéro client (optionnel, 8 chiffres), Nom & prénom (obligatoire), Chargé de clientèle (obligatoire, défaut « Ahmed Diop »).
+- Étape 1 : Saisie Revenu/Charges/Montant (FCFA formatés) + Durée (slider). Calcul du taux d’endettement (sans intérêts : montant/durée). **Pas d’affichage des dates**. Type de contrat (CDI/CDD) + Date fin CDD si CDD.
+- Étape 2 : Impayés actuels/anciens (anciens → radios Oui/Non pour changement/amélioration).
+- Étape 3 : « L’employeur est-il connu ? » (🟢/🔴/Inconnu) + ancienneté employeur (slider).
+- Avant l’étape 3, les **alertes** (rouge/orange) **n’arrêtent pas** le process, elles sont **agrégées**.
+- Décision finale :
+  • ≥1 rouge → « Crédit refusé… » + liste des rouges
+  • sinon ≥1 orange → « Risque de refus… » + liste des oranges
+  • sinon → « Crédit accepté »
+- Bouton **🗂️ Voir l'historique des simulations** en bas de chaque page, espacé.
+- Navigation stable sans `st.form`, clés uniques par étape (`s0_*`, `s1_*`, ...).
 """
 
 import datetime
@@ -17,17 +26,6 @@ try:
     HAS_STREAMLIT = True
 except Exception:
     HAS_STREAMLIT = False
-
-
-# ---------- Rerun helper (compatibilité) ----------
-def force_rerun():
-    try:
-        st.rerun()
-    except Exception:
-        try:
-            st.experimental_rerun()  # fallback si vieille version
-        except Exception:
-            pass
 
 
 # ------------------ Helpers ------------------
@@ -150,7 +148,6 @@ def eval_step3_alerts(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 # ------------------ Décision finale agrégée ------------------
 
 def final_decision_text(rouges: List[str], oranges: List[str]) -> Tuple[str, str]:
-    """Texte final avec listes à puces et retours ligne sûrs."""
     if rouges:
         motifs = "\n".join([f"• {m}" for m in rouges])
         return "red", f"Crédit refusé pour motif(s) suivant(s) :\n{motifs}"
@@ -198,22 +195,22 @@ def run_streamlit_app():
         with col_a:
             st.button("⬅ Retour", key="s0_back", disabled=True, use_container_width=True)
         with col_b:
-            if st.button("Suivant", key="s0_next", use_container_width=True):
-                if not is_filled(nom_prenom) or not is_filled(charge_clientele):
-                    st.error("Merci de renseigner le nom du client et le chargé de clientèle avant de continuer.")
-                else:
-                    st.session_state.form_data.update({
-                        "numero_client": (num_client or "").strip(),
-                        "nom_prenom_client": nom_prenom.strip(),
-                        "charge_clientele": charge_clientele.strip(),
-                    })
-                    st.session_state.step = 1
-                    force_rerun()
+            next0 = st.button("Suivant", key="s0_next", use_container_width=True)
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
         if st.button("🗂️ Voir l'historique des simulations", key="hist_step0"):
             st.session_state.show_history = True
-            force_rerun()
+
+        if next0:
+            if not is_filled(nom_prenom) or not is_filled(charge_clientele):
+                st.error("Merci de renseigner le nom du client et le chargé de clientèle avant de continuer.")
+            else:
+                st.session_state.form_data.update({
+                    "numero_client": (num_client or "").strip(),
+                    "nom_prenom_client": nom_prenom.strip(),
+                    "charge_clientele": charge_clientele.strip(),
+                })
+                st.session_state.step = 1
 
     # ======================================
     # Étape 1 — Données financières (calc TE)
@@ -236,7 +233,7 @@ def run_streamlit_app():
                 "Date fin CDD (si CDD)", value=(datetime.date.today() + datetime.timedelta(days=180)), key="s1_cdd_fin"
             )
 
-        # Dates “coulisses” pour la règle CDD
+        # Dates calculées en coulisses pour la règle CDD
         date_debut_credit = datetime.date.today() + datetime.timedelta(days=15)
         date_fin_credit = add_months(date_debut_credit, int(duree_credit_mois))
 
@@ -244,7 +241,6 @@ def run_streamlit_app():
         with col_a:
             if st.button("⬅ Retour", key="s1_back", use_container_width=True):
                 st.session_state.step = 0
-                force_rerun()
         with col_b:
             if st.button("Suivant", key="s1_next", use_container_width=True):
                 valid = all([ok_rev, ok_chg, ok_mnt]) and revenu > 0 and duree_credit_mois >= 1
@@ -270,12 +266,10 @@ def run_streamlit_app():
                     for msg in r + o:
                         st.warning(msg)
                     st.session_state.step = 2
-                    force_rerun()
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
         if st.button("🗂️ Voir l'historique des simulations", key="hist_step1"):
             st.session_state.show_history = True
-            force_rerun()
 
     # ==================================
     # Étape 2 — Compte & Historique
@@ -299,7 +293,6 @@ def run_streamlit_app():
         with col_a:
             if st.button("⬅ Retour", key="s2_back", use_container_width=True):
                 st.session_state.step = 1
-                force_rerun()
         with col_b:
             if st.button("Suivant", key="s2_next", use_container_width=True):
                 st.session_state.form_data.update({
@@ -315,12 +308,10 @@ def run_streamlit_app():
                 for msg in r + o:
                     st.warning(msg)
                 st.session_state.step = 3
-                force_rerun()
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
         if st.button("🗂️ Voir l'historique des simulations", key="hist_step2"):
             st.session_state.show_history = True
-            force_rerun()
 
     # ==================================
     # Étape 3 — Employeur & décision
@@ -339,7 +330,6 @@ def run_streamlit_app():
         with col_a:
             if st.button("⬅ Retour", key="s3_back", use_container_width=True):
                 st.session_state.step = 2
-                force_rerun()
         with col_b:
             if st.button("Décision finale", key="s3_decide", use_container_width=True):
                 st.session_state.form_data.update({
@@ -353,10 +343,12 @@ def run_streamlit_app():
                 reds = list(dict.fromkeys(st.session_state.alerts_red))
                 oranges = list(dict.fromkeys(st.session_state.alerts_orange))
                 level, text = final_decision_text(reds, oranges)
-
-                # Sauvegarde pour Résumé (Étape 4)
-                st.session_state.last_decision_level = level
-                st.session_state.last_decision_text = text
+                if level == "red":
+                    st.error(text)
+                elif level == "orange":
+                    st.warning(text)
+                else:
+                    st.success(text)
 
                 snapshot = {**st.session_state.form_data}
                 snapshot.update({
@@ -365,44 +357,13 @@ def run_streamlit_app():
                     "decision_finale": text,
                 })
                 st.session_state.historique.append(snapshot)
-
-                # Reset des alertes pour la prochaine simulation
                 st.session_state.alerts_red = []
                 st.session_state.alerts_orange = []
-
-                # Naviguer vers Résumé
-                st.session_state.step = 4
-                force_rerun()
+                st.session_state.step = 0
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
         if st.button("🗂️ Voir l'historique des simulations", key="hist_step3"):
             st.session_state.show_history = True
-            force_rerun()
-
-    # ==============================
-    # Étape 4 — Résumé de la décision
-    # ==============================
-    elif st.session_state.step == 4:
-        st.subheader("Résumé de la décision")
-        level = st.session_state.get("last_decision_level", "green")
-        text = st.session_state.get("last_decision_text", "Crédit accepté")
-
-        if level == "red":
-            st.error(text)
-        elif level == "orange":
-            st.warning(text)
-        else:
-            st.success(text)
-
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("🔁 Nouvelle simulation", key="s4_new", use_container_width=True):
-                st.session_state.step = 0
-                force_rerun()
-        with col_b:
-            if st.button("🗂️ Voir l'historique des simulations", key="s4_hist", use_container_width=True):
-                st.session_state.show_history = True
-                force_rerun()
 
     # ==============================
     # Historique (à la demande)
@@ -412,14 +373,10 @@ def run_streamlit_app():
         st.subheader("Historique des simulations")
         st.dataframe(df)
         st.download_button(
-            "📥 Télécharger l'historique (CSV)",
-            data=df.to_csv(index=False),
-            file_name="historique_credit.csv",
-            mime="text/csv"
+            "📥 Télécharger l'historique (CSV)", data=df.to_csv(index=False), file_name="historique_credit.csv", mime="text/csv"
         )
         if st.button("Masquer l'historique", key="hist_hide"):
             st.session_state.show_history = False
-            force_rerun()
 
 
 if __name__ == "__main__":
