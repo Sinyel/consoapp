@@ -71,13 +71,13 @@ def parse_fcfa(s: str) -> Tuple[int, bool]:
         return 0, False
 
 
-def fcfa_input(label: str, key: str, default_value: int) -> Tuple[int, bool]:
-    default_str = fmt_fcfa(default_value)
-    s = st.text_input(label, value=st.session_state.get(key, default_str), key=key)
-    val, ok = parse_fcfa(s)
-    if not ok:
-        st.warning(f"Entrée invalide pour {label}. Utilisez uniquement des chiffres, ex. {default_str}")
-    return val, ok
+def is_filled(val) -> bool:
+    """Considère comme rempli si non-None et non-vide après trim. Compte la valeur par défaut 'Ahmed Diop'."""
+    if val is None:
+        return False
+    if isinstance(val, str):
+        return val.strip() != ""
+    return True
 
 
 def calc_endettement_simplifie(revenu_mensuel: int, charges_mensuelles: int, montant_demande: int, duree_mois: int) -> Tuple[float, float]:
@@ -139,11 +139,15 @@ def eval_step3_alerts(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
 def final_decision_text(rouges: List[str], oranges: List[str]) -> Tuple[str, str]:
     if rouges:
-        motifs = "\n".join([f"• {m}" for m in rouges])
-        return "red", f"Crédit refusé pour motif(s) suivant(s) :\n{motifs}"
+        motifs = "
+".join([f"• {m}" for m in rouges])
+        return "red", f"Crédit refusé pour motif(s) suivant(s) :
+{motifs}"
     if oranges:
-        motifs = "\n".join([f"• {m}" for m in oranges])
-        return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :\n{motifs}"
+        motifs = "
+".join([f"• {m}" for m in oranges])
+        return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :
+{motifs}"
     return "green", "Crédit accepté"
 
 
@@ -182,7 +186,7 @@ def run_streamlit_app():
             with cols[0]:
                 back0 = st.form_submit_button("⬅ Retour", disabled=True, use_container_width=True)
             with cols[1]:
-                can_continue = bool(nom_prenom.strip()) and bool(charge_clientele.strip())
+                can_continue = is_filled(nom_prenom) and is_filled(charge_clientele)
                 next0 = st.form_submit_button("Suivant", disabled=not can_continue, use_container_width=True)
 
         # Bouton Historique en bas, espacé
