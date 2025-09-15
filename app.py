@@ -91,7 +91,7 @@ def decision_credit(data: Dict[str, Any]) -> str:
     if impayes_anciens:
         if changement_employeur or amelioration_employeur:
             if taux_endettement > 0.25:
-                return "Refus (rouge) : limiter le taux d'endettement à 25% car impayés anciens"
+                return "Condition (orange) : limiter le taux d'endettement à 25% car impayés anciens"
         else:
             return "Refus (rouge) : Pas de changement chez l'employeur suite anciens impayés"
 
