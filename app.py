@@ -1,11 +1,17 @@
 """
 Credit Decision App
 
-Mise à jour Étape 2 :
-- Si `changement_employeur` ou `amelioration_employeur` est Oui et que `taux_endettement > 0.25`,
-  alors l’utilisateur **ne peut pas continuer** le processus.
-- Un message orange (warning) s’affiche :
-  "Condition (orange) : limiter le taux d'endettement à 25% car impayés anciens".
+Mise à jour Étape 3 :
+1) Reformulation de la question : **« L'employeur est-il connu ? »** avec 3 choix :
+   - **🟢 Connu - pas d'alerte**
+   - **🔴 Connu - Alerte rouge**
+   - **Inconnu pour l'instant**
+2) Règles de décision finales associées :
+   - Si **Inconnu pour l'instant** → **Orange** : "En attente (orange) : Se renseigner sur l'état financier de l'employeur pour avis définitif".
+   - Si **🔴 Connu - Alerte rouge** → **Refus (rouge)** : "Refus (rouge) : Employeur connu avec un état financier risqué".
+   - Si **🟢 Connu - pas d'alerte** → **Succès** : "Crédit accepté (vert)".
+
+Les règles précédentes (étapes 1 & 2) restent inchangées, notamment les blocs rouge/orange qui peuvent bloquer avant l'étape 3.
 """
 
 import datetime
@@ -49,6 +55,7 @@ def add_months(sourcedate: datetime.date, months: int) -> datetime.date:
 
 
 def decision_credit(data: Dict[str, Any]) -> str:
+    # Taux d'endettement (normalisation : si >1 on suppose un pourcentage)
     raw_taux = data.get("taux_endettement", 0.0)
     try:
         taux_endettement = float(raw_taux)
@@ -66,16 +73,18 @@ def decision_credit(data: Dict[str, Any]) -> str:
         date_debut_credit = None
         date_fin_credit = datetime.date.max
 
+    # Étape 2 — champs
     anciennete_compte = int(data.get("anciennete_compte", 999))
     impayes_actuels = bool(data.get("impayes_actuels", False))
     impayes_anciens = bool(data.get("impayes_anciens", False))
     changement_employeur = bool(data.get("changement_employeur", False))
     amelioration_employeur = bool(data.get("amelioration_employeur", False))
 
+    # Étape 3 — champs
     anciennete_employeur = int(data.get("anciennete_employeur", 999))
-    employeur_connu = data.get("employeur_connu", "Oui")
-    suspicion_employeur = bool(data.get("suspicion_employeur", False))
+    employeur_statut = data.get("employeur_statut", "Inconnu pour l'instant")  # 🟢 / 🔴 / Inconnu
 
+    # ---- Étape 1 règles ----
     if taux_endettement > (1.0 / 3.0):
         return "Refus (rouge) : Endettement trop élevé"
 
@@ -84,6 +93,7 @@ def decision_credit(data: Dict[str, Any]) -> str:
         if date_fin_cdd is not None and date_fin_cdd < date_fin_credit:
             return "Refus (rouge) : CDD se termine avant la fin du crédit demandé"
 
+    # ---- Étape 2 règles ----
     if anciennete_compte < 3:
         return "Refus (rouge) : Client trop récent"
 
@@ -97,16 +107,20 @@ def decision_credit(data: Dict[str, Any]) -> str:
         else:
             return "Refus (rouge) : Pas de changement chez l'employeur suite anciens impayés"
 
+    # ---- Étape 3 règles ----
     if anciennete_employeur < 3:
         return "Refus (rouge) : Ancienneté chez l’employeur < 3 mois"
-    if 3 <= anciennete_employeur <= 12:
-        if employeur_connu == "Non" or suspicion_employeur:
-            return "Risque ORANGE : Employeur non fiable ou suspicion"
 
-    if suspicion_employeur:
-        return "Risque ORANGE : Vérification nécessaire sur employeur"
+    # Décision finale selon le statut de l’employeur
+    if employeur_statut == "Inconnu pour l'instant":
+        return "En attente (orange) : Se renseigner sur l'état financier de l'employeur pour avis définitif"
+    if employeur_statut.startswith("🔴"):
+        return "Refus (rouge) : Employeur connu avec un état financier risqué"
+    if employeur_statut.startswith("🟢"):
+        return "Crédit accepté (vert)"
 
-    return "ACCEPTE"
+    # Si pour une raison quelconque la valeur ne matche pas, rester prudent
+    return "En attente (orange) : Statut employeur non déterminé"
 
 
 def run_streamlit_app():
@@ -120,6 +134,7 @@ def run_streamlit_app():
     if "historique" not in st.session_state:
         st.session_state.historique = []
 
+    # Étape 1
     if st.session_state.step == 1:
         st.subheader("Étape 1 — Informations de base")
         raw_taux = st.number_input(
@@ -148,11 +163,12 @@ def run_streamlit_app():
             resultat = decision_credit(st.session_state.form_data)
             if "Refus" in resultat:
                 st.error(resultat)
-            elif "Condition (orange)" in resultat:
+            elif "orange" in resultat.lower():
                 st.warning(resultat)
             else:
                 st.session_state.step = 2
 
+    # Étape 2
     elif st.session_state.step == 2:
         st.subheader("Étape 2 — Compte et historique")
         anciennete_compte = st.number_input("Ancienneté du compte (mois)", min_value=0)
@@ -182,18 +198,25 @@ def run_streamlit_app():
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
                     st.error(resultat)
-                elif "Condition (orange)" in resultat:
-                    st.warning(resultat)
-                elif "ORANGE" in resultat:
+                elif "Condition (orange)" in resultat or "orange" in resultat.lower():
                     st.warning(resultat)
                 else:
                     st.session_state.step = 3
 
+    # Étape 3
     elif st.session_state.step == 3:
         st.subheader("Étape 3 — Informations employeur")
         anciennete_employeur = st.number_input("Ancienneté chez l'employeur (mois)", min_value=0)
-        employeur_connu = st.selectbox("Employeur connu ?", ["Oui", "Non"])
-        suspicion_employeur = st.checkbox("Suspicion sur l'employeur")
+        # Nouvelle question/statut de l'employeur
+        employeur_statut = st.selectbox(
+            "L'employeur est-il connu ?",
+            [
+                "🟢 Connu - pas d'alerte",
+                "🔴 Connu - Alerte rouge",
+                "Inconnu pour l'instant",
+            ],
+            index=0,
+        )
         col1, col2 = st.columns(2)
         with col1:
             if st.button("⬅ Retour"):
@@ -202,16 +225,17 @@ def run_streamlit_app():
             if st.button("Décision finale"):
                 st.session_state.form_data.update({
                     "anciennete_employeur": int(anciennete_employeur),
-                    "employeur_connu": employeur_connu,
-                    "suspicion_employeur": bool(suspicion_employeur),
+                    "employeur_statut": employeur_statut,
                 })
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
                     st.error(resultat)
-                elif "ORANGE" in resultat or "Condition (orange)" in resultat:
+                elif "orange" in resultat.lower():
                     st.warning(resultat)
-                else:
+                elif "accepté" in resultat.lower() or "accepté" in resultat.lower():
                     st.success(resultat)
+                else:
+                    st.info(resultat)
                 st.session_state.historique.append({**st.session_state.form_data, "Décision": resultat})
                 st.session_state.step = 1
 
