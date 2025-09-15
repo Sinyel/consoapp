@@ -27,7 +27,17 @@ try:
 except Exception:
     HAS_STREAMLIT = False
 
+# 🔐 MOT DE PASSE SIMPLE POUR ACCÈS
+PASSWORD = "yele_coul"  # 🔁 Tu peux changer ce mot de passe
 
+st.title("🔐 Système Expert Crédit Conso - Accès sécurisé")
+
+password_input = st.text_input("Entrez le mot de passe :", type="password")
+
+if password_input != PASSWORD:
+    st.warning("Accès refusé. Entrez le bon mot de passe pour continuer.")
+    st.stop()
+  
 # ------------------ Helpers ------------------
 
 def _ensure_date(obj):
