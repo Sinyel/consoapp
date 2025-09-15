@@ -166,31 +166,29 @@ def run_streamlit_app():
     if "show_history" not in st.session_state:
         st.session_state.show_history = False
 
-    # ---- Étape 0 : Identification ----
+    # ---- Étape 0 : Identification (sans st.form) ----
     if st.session_state.step == 0:
-        with st.form(key="form_step0"):
-            st.subheader("Étape 0 — Identification")
-            num_client = st.text_input("Numéro client (8 chiffres, optionnel)", key="num_client")
-            nom_prenom = st.text_input("Nom et prénom du client (obligatoire)", key="nom_prenom")
-            charge_clientele = st.text_input("Nom et prénom du chargé de clientèle (obligatoire)", value="Ahmed Diop", key="charge_clientele")
+        st.subheader("Étape 0 — Identification")
+        num_client = st.text_input("Numéro client (8 chiffres, optionnel)", key="num_client")
+        nom_prenom = st.text_input("Nom et prénom du client (obligatoire)", key="nom_prenom")
+        charge_clientele = st.text_input("Nom et prénom du chargé de clientèle (obligatoire)", value="Ahmed Diop", key="charge_clientele")
 
-            if num_client and (not num_client.isdigit() or len(num_client) != 8):
-                st.warning("Le numéro client doit contenir exactement 8 chiffres (ou laisser vide).")
+        if num_client and (not num_client.isdigit() or len(num_client) != 8):
+            st.warning("Le numéro client doit contenir exactement 8 chiffres (ou laisser vide).")
 
-            cols = st.columns(2)
-            with cols[0]:
-                back0 = st.form_submit_button("⬅ Retour", disabled=True, use_container_width=True)
-            with cols[1]:
-                next0 = st.form_submit_button("Suivant", use_container_width=True)
+        cols = st.columns(2)
+        with cols[0]:
+            back0 = st.button("⬅ Retour", key="back0", disabled=True, use_container_width=True)
+        with cols[1]:
+            next0 = st.button("Suivant", key="next0", use_container_width=True)
 
         # Bouton Historique en bas, espacé
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        hist0 = st.button("🗂️ Voir l'historique des simulations", key="hist0")
-        if hist0:
+        if st.button("🗂️ Voir l'historique des simulations", key="hist0"):
             st.session_state.show_history = True
 
         if next0:
-            # Validation stricte après submit (les champs par défaut doivent compter comme remplis)
+            # Validation après clic
             if not is_filled(nom_prenom) or not is_filled(charge_clientele):
                 st.error("Merci de renseigner le nom du client et le chargé de clientèle avant de continuer.")
             else:
@@ -201,169 +199,150 @@ def run_streamlit_app():
                 })
                 st.session_state.step = 1
 
-    # ---- Étape 1 : Données financières & calcul endettement ----
+    # ---- Étape 1 : Données financières & calcul endettement (sans st.form) ----
     elif st.session_state.step == 1:
-        with st.form(key="form_step1"):
-            st.subheader("Étape 1 — Données financières")
-            revenu, ok_rev = fcfa_input("Revenu mensuel (FCFA)", "_rev_fcfa", 700_000)
-            charges, ok_chg = fcfa_input("Charges mensuelles (crédits, loyer, etc.) (FCFA)", "_chg_fcfa", 250_000)
-            montant, ok_mnt = fcfa_input("Montant du crédit demandé (FCFA)", "_mnt_fcfa", 300_000)
-            duree_credit_mois = st.slider("Durée du crédit (mois)", min_value=1, max_value=120, value=12, key="dur_step1")
+        st.subheader("Étape 1 — Données financières")
+        revenu, ok_rev = fcfa_input("Revenu mensuel (FCFA)", "_rev_fcfa", 700_000)
+        charges, ok_chg = fcfa_input("Charges mensuelles (crédits, loyer, etc.) (FCFA)", "_chg_fcfa", 250_000)
+        montant, ok_mnt = fcfa_input("Montant du crédit demandé (FCFA)", "_mnt_fcfa", 300_000)
+        duree_credit_mois = st.slider("Durée du crédit (mois)", min_value=1, max_value=120, value=12, key="dur_step1")
 
-            mensualite, taux_estime = calc_endettement_simplifie(revenu, charges, montant, duree_credit_mois)
-            st.caption(f"Mensualité estimée (sans intérêts) : {fmt_fcfa(int(round(mensualite)))} FCFA")
-            st.caption(f"Taux d'endettement estimé : {taux_estime*100:.1f}%")
+        mensualite, taux_estime = calc_endettement_simplifie(revenu, charges, montant, duree_credit_mois)
+        st.caption(f"Mensualité estimée (sans intérêts) : {fmt_fcfa(int(round(mensualite)))} FCFA")
+        st.caption(f"Taux d'endettement estimé : {taux_estime*100:.1f}%")
 
-            type_contrat = st.selectbox("Type de contrat", ["CDI", "CDD"], key="contrat_step1")
-            date_fin_cdd = None
-            if type_contrat == "CDD":
-                date_fin_cdd = st.date_input("Date fin CDD (si CDD)", value=(datetime.date.today() + datetime.timedelta(days=180)), key="cdd_fin_step1")
+        type_contrat = st.selectbox("Type de contrat", ["CDI", "CDD"], key="contrat_step1")
+        date_fin_cdd = None
+        if type_contrat == "CDD":
+            date_fin_cdd = st.date_input("Date fin CDD (si CDD)", value=(datetime.date.today() + datetime.timedelta(days=180)), key="cdd_fin_step1")
 
-            # Dates en coulisses pour la règle CDD
-            date_debut_credit = datetime.date.today() + datetime.timedelta(days=15)
-            date_fin_credit = add_months(date_debut_credit, int(duree_credit_mois))
+        # Dates en coulisses pour la règle CDD
+        date_debut_credit = datetime.date.today() + datetime.timedelta(days=15)
+        date_fin_credit = add_months(date_debut_credit, int(duree_credit_mois))
 
-            cols = st.columns(2)
-            with cols[0]:
-                back1 = st.form_submit_button("⬅ Retour", use_container_width=True)
-            with cols[1]:
-                next1 = st.form_submit_button("Suivant", use_container_width=True)
+        cols = st.columns(2)
+        with cols[0]:
+            if st.button("⬅ Retour", key="back1", use_container_width=True):
+                st.session_state.step = 0
+        with cols[1]:
+            if st.button("Suivant", key="next1", use_container_width=True):
+                valid = all([ok_rev, ok_chg, ok_mnt]) and revenu > 0 and duree_credit_mois >= 1
+                if type_contrat == "CDD" and date_fin_cdd is None:
+                    valid = False
+                if not valid:
+                    st.error("Merci de renseigner correctement tous les champs de l'étape 1 avant de continuer.")
+                else:
+                    st.session_state.form_data.update({
+                        "revenu_mensuel": int(revenu),
+                        "charges_mensuelles": int(charges),
+                        "montant_demande": int(montant),
+                        "duree_credit_mois": int(duree_credit_mois),
+                        "taux_endettement": float(taux_estime),
+                        "type_contrat": type_contrat,
+                        "date_fin_cdd": date_fin_cdd,
+                        "date_debut_credit": date_debut_credit,
+                        "date_fin_credit": date_fin_credit,
+                    })
+                    r, o = eval_step1_alerts(st.session_state.form_data)
+                    st.session_state.alerts_red.extend(r)
+                    st.session_state.alerts_orange.extend(o)
+                    for msg in r + o:
+                        st.warning(msg)
+                    st.session_state.step = 2
 
-        # Bouton Historique en bas, espacé
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        hist1 = st.button("🗂️ Voir l'historique des simulations", key="hist1")
-        if hist1:
+        if st.button("🗂️ Voir l'historique des simulations", key="hist1"):
             st.session_state.show_history = True
 
-        if back1:
-            st.session_state.step = 0
-        if next1:
-            # Validation stricte APRÈS submit
-            valid = all([ok_rev, ok_chg, ok_mnt]) and revenu > 0 and duree_credit_mois >= 1
-            if type_contrat == "CDD" and date_fin_cdd is None:
-                valid = False
-            if not valid:
-                st.error("Merci de renseigner correctement tous les champs de l'étape 1 avant de continuer.")
-            else:
+    # ---- Étape 2 : Compte / impayés (sans st.form) ----
+    elif st.session_state.step == 2:
+        st.subheader("Étape 2 — Compte & Historique")
+        anciennete_compte = st.slider("Ancienneté du compte (mois)", min_value=0, max_value=240, value=12, key="anc_compte")
+        impayes_actuels = st.checkbox("Impayés actuels (6 derniers mois)", key="imp_actuels")
+        impayes_anciens = st.checkbox("Impayés anciens (il y a plus de 6 mois)", key="imp_anciens")
+
+        changement_employeur = False
+        amelioration_employeur = False
+        if impayes_anciens:
+            st.markdown("**Informations complémentaires (car impayés anciens cochés)**")
+            ch = st.radio("Changement d’employeur ?", ["Non", "Oui"], index=0, key="chg_emp")
+            am = st.radio("Amélioration de la situation de l’employeur ?", ["Non", "Oui"], index=0, key="am_emp")
+            changement_employeur = (ch == "Oui")
+            amelioration_employeur = (am == "Oui")
+
+        cols = st.columns(2)
+        with cols[0]:
+            if st.button("⬅ Retour", key="back2", use_container_width=True):
+                st.session_state.step = 1
+        with cols[1]:
+            if st.button("Suivant", key="next2", use_container_width=True):
                 st.session_state.form_data.update({
-                    "revenu_mensuel": int(revenu),
-                    "charges_mensuelles": int(charges),
-                    "montant_demande": int(montant),
-                    "duree_credit_mois": int(duree_credit_mois),
-                    "taux_endettement": float(taux_estime),
-                    "type_contrat": type_contrat,
-                    "date_fin_cdd": date_fin_cdd,
-                    "date_debut_credit": date_debut_credit,
-                    "date_fin_credit": date_fin_credit,
+                    "anciennete_compte": int(anciennete_compte),
+                    "impayes_actuels": bool(impayes_actuels),
+                    "impayes_anciens": bool(impayes_anciens),
+                    "changement_employeur": bool(changement_employeur),
+                    "amelioration_employeur": bool(amelioration_employeur),
                 })
-                r, o = eval_step1_alerts(st.session_state.form_data)
+                r, o = eval_step2_alerts(st.session_state.form_data)
                 st.session_state.alerts_red.extend(r)
                 st.session_state.alerts_orange.extend(o)
                 for msg in r + o:
                     st.warning(msg)
-                st.session_state.step = 2
+                st.session_state.step = 3
 
-    # ---- Étape 2 : Compte / impayés ----
-    elif st.session_state.step == 2:
-        with st.form(key="form_step2"):
-            st.subheader("Étape 2 — Compte & Historique")
-            anciennete_compte = st.slider("Ancienneté du compte (mois)", min_value=0, max_value=240, value=12, key="anc_compte")
-            impayes_actuels = st.checkbox("Impayés actuels (6 derniers mois)", key="imp_actuels")
-            impayes_anciens = st.checkbox("Impayés anciens (il y a plus de 6 mois)", key="imp_anciens")
-
-            changement_employeur = False
-            amelioration_employeur = False
-            if impayes_anciens:
-                st.markdown("**Informations complémentaires (car impayés anciens cochés)**")
-                ch = st.radio("Changement d’employeur ?", ["Non", "Oui"], index=0, key="chg_emp")
-                am = st.radio("Amélioration de la situation de l’employeur ?", ["Non", "Oui"], index=0, key="am_emp")
-                changement_employeur = (ch == "Oui")
-                amelioration_employeur = (am == "Oui")
-
-            cols = st.columns(2)
-            with cols[0]:
-                back2 = st.form_submit_button("⬅ Retour", use_container_width=True)
-            with cols[1]:
-                next2 = st.form_submit_button("Suivant", use_container_width=True)
-
-        # Bouton Historique en bas, espacé
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        hist2 = st.button("🗂️ Voir l'historique des simulations", key="hist2")
-        if hist2:
+        if st.button("🗂️ Voir l'historique des simulations", key="hist2"):
             st.session_state.show_history = True
 
-        if back2:
-            st.session_state.step = 1
-        if next2:
-            st.session_state.form_data.update({
-                "anciennete_compte": int(anciennete_compte),
-                "impayes_actuels": bool(impayes_actuels),
-                "impayes_anciens": bool(impayes_anciens),
-                "changement_employeur": bool(changement_employeur),
-                "amelioration_employeur": bool(amelioration_employeur),
-            })
-            r, o = eval_step2_alerts(st.session_state.form_data)
-            st.session_state.alerts_red.extend(r)
-            st.session_state.alerts_orange.extend(o)
-            for msg in r + o:
-                st.warning(msg)
-            st.session_state.step = 3
-
-    # ---- Étape 3 : Employeur & décision finale ----
+    # ---- Étape 3 : Employeur & décision finale (sans st.form) ----
     elif st.session_state.step == 3:
-        with st.form(key="form_step3"):
-            st.subheader("Étape 3 — Informations employeur & décision")
-            anciennete_employeur = st.slider("Ancienneté chez l'employeur (mois)", min_value=0, max_value=480, value=24, key="anc_emp")
-            employeur_statut = st.selectbox(
-                "L'employeur est-il connu ?",
-                ["🟢 Connu - pas d'alerte", "🔴 Connu - Alerte rouge", "Inconnu pour l'instant"],
-                index=0,
-                key="emp_statut",
-            )
+        st.subheader("Étape 3 — Informations employeur & décision")
+        anciennete_employeur = st.slider("Ancienneté chez l'employeur (mois)", min_value=0, max_value=480, value=24, key="anc_emp")
+        employeur_statut = st.selectbox(
+            "L'employeur est-il connu ?",
+            ["🟢 Connu - pas d'alerte", "🔴 Connu - Alerte rouge", "Inconnu pour l'instant"],
+            index=0,
+            key="emp_statut",
+        )
 
-            cols = st.columns(2)
-            with cols[0]:
-                back3 = st.form_submit_button("⬅ Retour", use_container_width=True)
-            with cols[1]:
-                decide = st.form_submit_button("Décision finale", use_container_width=True)
+        cols = st.columns(2)
+        with cols[0]:
+            if st.button("⬅ Retour", key="back3", use_container_width=True):
+                st.session_state.step = 2
+        with cols[1]:
+            if st.button("Décision finale", key="decide", use_container_width=True):
+                st.session_state.form_data.update({
+                    "anciennete_employeur": int(anciennete_employeur),
+                    "employeur_statut": employeur_statut,
+                })
+                r3, o3 = eval_step3_alerts(st.session_state.form_data)
+                st.session_state.alerts_red.extend(r3)
+                st.session_state.alerts_orange.extend(o3)
 
-        # Bouton Historique en bas, espacé
+                reds = list(dict.fromkeys(st.session_state.alerts_red))
+                oranges = list(dict.fromkeys(st.session_state.alerts_orange))
+                level, text = final_decision_text(reds, oranges)
+                if level == "red":
+                    st.error(text)
+                elif level == "orange":
+                    st.warning(text)
+                else:
+                    st.success(text)
+
+                snapshot = {**st.session_state.form_data}
+                snapshot.update({
+                    "alertes_rouges": reds,
+                    "alertes_oranges": oranges,
+                    "decision_finale": text,
+                })
+                st.session_state.historique.append(snapshot)
+                st.session_state.alerts_red = []
+                st.session_state.alerts_orange = []
+                st.session_state.step = 0
+
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        hist3 = st.button("🗂️ Voir l'historique des simulations", key="hist3")
-        if hist3:
+        if st.button("🗂️ Voir l'historique des simulations", key="hist3"):
             st.session_state.show_history = True
-
-        if back3:
-            st.session_state.step = 2
-        if decide:
-            st.session_state.form_data.update({
-                "anciennete_employeur": int(anciennete_employeur),
-                "employeur_statut": employeur_statut,
-            })
-            r3, o3 = eval_step3_alerts(st.session_state.form_data)
-            st.session_state.alerts_red.extend(r3)
-            st.session_state.alerts_orange.extend(o3)
-
-            reds = list(dict.fromkeys(st.session_state.alerts_red))
-            oranges = list(dict.fromkeys(st.session_state.alerts_orange))
-            level, text = final_decision_text(reds, oranges)
-            if level == "red":
-                st.error(text)
-            elif level == "orange":
-                st.warning(text)
-            else:
-                st.success(text)
-
-            snapshot = {**st.session_state.form_data}
-            snapshot.update({
-                "alertes_rouges": reds,
-                "alertes_oranges": oranges,
-                "decision_finale": text,
-            })
-            st.session_state.historique.append(snapshot)
-            st.session_state.alerts_red = []
-            st.session_state.alerts_orange = []
-            st.session_state.step = 0
 
     # ---- Historique (affichage à la demande) ----
     if st.session_state.show_history and st.session_state.historique:
@@ -376,6 +355,10 @@ def run_streamlit_app():
 
 
 if __name__ == "__main__":
+    if HAS_STREAMLIT:
+        run_streamlit_app()
+    else:
+        print("Streamlit non installé — version UI non exécutée.")
     if HAS_STREAMLIT:
         run_streamlit_app()
     else:
