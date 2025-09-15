@@ -169,9 +169,9 @@ def run_streamlit_app():
     # ---- Étape 0 : Identification (sans st.form) ----
     if st.session_state.step == 0:
         st.subheader("Étape 0 — Identification")
-        num_client = st.text_input("Numéro client (8 chiffres, optionnel)", key="num_client")
-        nom_prenom = st.text_input("Nom et prénom du client (obligatoire)", key="nom_prenom")
-        charge_clientele = st.text_input("Nom et prénom du chargé de clientèle (obligatoire)", value="Ahmed Diop", key="charge_clientele")
+        num_client = st.text_input("Numéro client (8 chiffres, optionnel)", key="s0_num_client")
+        nom_prenom = st.text_input("Nom et prénom du client (obligatoire)", key="s0_nom_prenom")
+        charge_clientele = st.text_input("Nom et prénom du chargé de clientèle (obligatoire)", value="Ahmed Diop", key="s0_charge_clientele")
 
         if num_client and (not num_client.isdigit() or len(num_client) != 8):
             st.warning("Le numéro client doit contenir exactement 8 chiffres (ou laisser vide).")
