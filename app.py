@@ -1,26 +1,29 @@
 """
 Credit Decision App
 
-This file contains two modes:
-1) Streamlit web app (if the `streamlit` package is available).  
-2) CLI / test mode fallback (runs automatically when Streamlit is not installed).
+Ce fichier contient :
+- la logique décisionnelle (fonction `decision_credit`) adaptée aux règles PDF,
+- une application Streamlit multi-étapes (si Streamlit est installé),
+- un mode CLI / suite de tests qui s'exécute automatiquement si Streamlit n'est pas présent.
 
-We intentionally avoid importing Streamlit at top-level so the file can be executed in environments
-where Streamlit is not available. If Streamlit is present, the Streamlit UI will run. Otherwise a
-set of automated tests will run and results will be printed and saved to `historique_credit_cli.csv`.
+Corrections appliquées suite à ton retour sur l'étape 1 :
+1) Le taux d'endettement est interprété correctement — l'UI accepte soit une valeur décimale (ex. 0.6) soit un pourcentage (ex. 60) ; la valeur est normalisée en décimal avant d'être évaluée. Une valeur strictement supérieure à 1/3 déclenche immédiatement un refus (rouge).
+2) Le champ "Date fin CDD" n'est affiché **que** si l'utilisateur choisit "CDD" comme type de contrat.
+3) On demande la **durée du crédit (en mois)** dès l'étape 1 ; l'application calcule la **date de début du crédit = aujourd'hui + 15 jours** et la **date de fin du crédit** en ajoutant la durée demandée. La règle CDD -> refus est : si `date_fin_cdd < date_fin_du_crédit_demandé` alors refus (rouge).
 
-The decision logic (function `decision_credit`) is robust to *partial* input dictionaries so it
-can be called after each step of a multi-step form to determine whether a red (refus) condition
-is already met (so the form can stop early), or whether an orange (alerte) condition is present.
+Remarques :
+- La fonction `decision_credit` est résistante aux validations étape-par-étape : elle ne retourne pas de faux refus quand un champ attendu n'est pas encore fourni (par ex. lors de la validation partielle après l'étape 1), sauf pour les conditions qui peuvent être évaluées immédiatement (ex. taux d'endettement).
+- Si Streamlit n'est pas disponible, le script lancera la suite de tests CLI et enregistrera un CSV `historique_credit_cli.csv`.
 """
 
 import datetime
+import calendar
 import pandas as pd
 import sys
 import os
 from typing import Dict, Any
 
-# Try to import streamlit only when we need it.
+# Import Streamlit uniquement si disponible
 try:
     import streamlit as st  # type: ignore
     HAS_STREAMLIT = True
@@ -29,13 +32,13 @@ except Exception:
 
 
 # ------------------
-# Decision logic
+# Helpers
 # ------------------
 
 def _ensure_date(obj):
-    """Return a datetime.date from obj when possible, else datetime.date.max."""
+    """Converts obj to datetime.date when possible, otherwise returns None."""
     if obj is None:
-        return datetime.date.max
+        return None
     if isinstance(obj, datetime.date):
         return obj
     if isinstance(obj, datetime.datetime):
@@ -46,27 +49,58 @@ def _ensure_date(obj):
                 return datetime.datetime.strptime(obj, fmt).date()
             except Exception:
                 pass
-    return datetime.date.max
+    return None
 
+
+def add_months(sourcedate: datetime.date, months: int) -> datetime.date:
+    """Add months to a date reliably (rollover years/months).
+    Uses calendar.monthrange to clamp day of month.
+    """
+    if months <= 0:
+        return sourcedate
+    month = sourcedate.month - 1 + months
+    year = sourcedate.year + month // 12
+    month = month % 12 + 1
+    day = min(sourcedate.day, calendar.monthrange(year, month)[1])
+    return datetime.date(year, month, day)
+
+
+# ------------------
+# Decision logic
+# ------------------
 
 def decision_credit(data: Dict[str, Any]) -> str:
     """
-    Applies the decision rules. The function is tolerant to missing keys and uses defaults that
-    *avoid* false early refusals when a field has not been provided yet (useful for step-by-step
-    forms where we validate early steps).
-
-    Returns one of:
-      - "Refus (rouge) : ..."
-      - "Risque ORANGE : ..."
-      - "ACCEPTE"
+    Applique les règles de décision. Le paramètre `data` est un dictionnaire qui peut être
+    partiellement rempli (utile pour des validations étape par étape). La fonction retourne :
+      - 'Refus (rouge) : ...',
+      - 'Risque ORANGE : ...',
+      - 'ACCEPTE'
     """
 
-    # Safe extraction with defaults that *do not* trigger false refusals when keys are missing.
-    taux_endettement = float(data.get("taux_endettement", 0.0))
-    type_contrat = data.get("type_contrat", "CDI")
-    date_fin_cdd = _ensure_date(data.get("date_fin_cdd", None))
+    # Normalisation / valeurs par défaut sécurisées pour validations partielles
+    raw_taux = data.get("taux_endettement", 0.0)
+    try:
+        taux_endettement = float(raw_taux)
+    except Exception:
+        taux_endettement = 0.0
 
-    # For stepwise validation we prefer defaults that mean "no problem" if not provided.
+    # Interprétation intelligente : si user donne > 1 on considère que c'est un pourcentage (ex. 60 -> 0.6)
+    if taux_endettement > 1.0:
+        taux_endettement = taux_endettement / 100.0
+
+    type_contrat = data.get("type_contrat", "CDI")
+
+    duree_credit_mois = int(data.get("duree_credit_mois", 0))
+    # Date de début = aujourd'hui + 15 jours suivant la règle demandée
+    if duree_credit_mois > 0:
+        date_debut_credit = datetime.date.today() + datetime.timedelta(days=15)
+        date_fin_credit = add_months(date_debut_credit, duree_credit_mois)
+    else:
+        date_debut_credit = None
+        date_fin_credit = datetime.date.max  # permet d'éviter des refus si la durée n'est pas encore saisie
+
+    # Safety-extracted employer / account fields with permissive defaults
     anciennete_compte = int(data.get("anciennete_compte", 999))
     impayes_actuels = bool(data.get("impayes_actuels", False))
     anciens_impayes = int(data.get("anciens_impayes", 0))
@@ -74,15 +108,18 @@ def decision_credit(data: Dict[str, Any]) -> str:
     employeur_connu = data.get("employeur_connu", "Oui")
     suspicion_employeur = bool(data.get("suspicion_employeur", False))
 
-    # 1) Taux d'endettement
+    # 1) Endettement — condition immédiate rouge si > 1/3
     if taux_endettement > (1.0 / 3.0):
         return "Refus (rouge) : Endettement trop élevé"
 
-    # 2) Contrat
-    if type_contrat == "CDD" and date_fin_cdd <= datetime.date.today():
-        return "Refus (rouge) : CDD terminé"
+    # 2) Contrat CDD — on vérifie la date de fin du contrat seulement si le champ a été fourni
+    if type_contrat == "CDD":
+        raw_date_fin_cdd = data.get("date_fin_cdd", None)
+        date_fin_cdd = _ensure_date(raw_date_fin_cdd)
+        if date_fin_cdd is not None and date_fin_cdd < date_fin_credit:
+            return "Refus (rouge) : CDD se termine avant la fin du crédit demandé"
 
-    # 3) Ancienneté du compte
+    # 3) Ancienneté compte
     if anciennete_compte < 3:
         return "Refus (rouge) : Client trop récent"
 
@@ -99,20 +136,18 @@ def decision_credit(data: Dict[str, Any]) -> str:
         if employeur_connu == "Non" or suspicion_employeur:
             return "Risque ORANGE : Employeur non fiable ou suspicion"
 
-    # 6) Suspicion générale
+    # 6) Suspicion employeur
     if suspicion_employeur:
         return "Risque ORANGE : Vérification nécessaire sur employeur"
 
-    # Everything passed
     return "ACCEPTE"
 
 
 # ------------------
-# Streamlit UI (only used when Streamlit is available)
+# Streamlit UI (multi-étapes)
 # ------------------
 
 def run_streamlit_app():
-    """Launch the multi-step Streamlit app."""
     st.set_page_config(page_title="Simulation Crédit", layout="centered")
     st.title("📊 Simulation Octroi Crédit à la Consommation")
 
@@ -123,31 +158,56 @@ def run_streamlit_app():
     if "historique" not in st.session_state:
         st.session_state.historique = []
 
-    # Step 1
+    # --- Étape 1 ---
     if st.session_state.step == 1:
         st.subheader("Étape 1 — Informations de base")
-        taux_endettement = st.number_input("Taux d'endettement (%)", min_value=0.0, max_value=100.0, step=0.1) / 100.0
+
+        # On accepte soit un décimal 0-1, soit un pourcentage 0-100 (auto-detect)
+        raw_taux = st.number_input(
+            "Taux d'endettement (ex. 0.60 = 60% ou 60)", min_value=0.0, max_value=100.0, step=0.1, value=0.3
+        )
+        st.caption("Saisie acceptée : 0.6 ou 60 (les deux). Les valeurs >1 seront interprétées comme des pourcentages.")
+
+        duree_credit_mois = st.number_input("Durée du crédit (mois)", min_value=1, value=12)
+
         type_contrat = st.selectbox("Type de contrat", ["CDI", "CDD"])
-        date_fin_cdd = st.date_input("Date fin CDD (si applicable)", value=datetime.date.today())
+
+        date_fin_cdd = None
+        if type_contrat == "CDD":
+            date_fin_cdd = st.date_input("Date fin CDD (si CDD)", value=(datetime.date.today() + datetime.timedelta(days=180)))
+
+        # Calcul des dates de crédit pour affichage
+        date_debut_credit = datetime.date.today() + datetime.timedelta(days=15)
+        date_fin_credit = add_months(date_debut_credit, int(duree_credit_mois))
+        st.info(f"Date de début estimée du crédit : {date_debut_credit} — Date de fin estimée : {date_fin_credit}")
 
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Suivant"):
+                # Normalisation du taux (auto-detect)
+                taux_normalise = float(raw_taux)
+                if taux_normalise > 1.0:
+                    taux_normalise = taux_normalise / 100.0
+
                 st.session_state.form_data.update({
-                    "taux_endettement": taux_endettement,
+                    "taux_endettement": taux_normalise,
+                    "duree_credit_mois": int(duree_credit_mois),
                     "type_contrat": type_contrat,
                     "date_fin_cdd": date_fin_cdd,
+                    "date_debut_credit": date_debut_credit,
+                    "date_fin_credit": date_fin_credit,
                 })
-                # Check for immediate red conditions
+
+                # Vérification immédiate des règles évaluables en étape 1
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
                     st.error(resultat)
                 else:
                     st.session_state.step = 2
 
-    # Step 2
+    # --- Étape 2 ---
     elif st.session_state.step == 2:
-        st.subheader("Étape 2 — Compte et impayés")
+        st.subheader("Étape 2 — Compte et historique")
         anciennete_compte = st.number_input("Ancienneté du compte (mois)", min_value=0)
         impayes_actuels = st.checkbox("Impayés actuels (6 derniers mois)")
         anciens_impayes = st.number_input("Nb d'anciens impayés > 1 mois", min_value=0)
@@ -159,9 +219,9 @@ def run_streamlit_app():
         with col2:
             if st.button("Suivant"):
                 st.session_state.form_data.update({
-                    "anciennete_compte": anciennete_compte,
-                    "impayes_actuels": impayes_actuels,
-                    "anciens_impayes": anciens_impayes,
+                    "anciennete_compte": int(anciennete_compte),
+                    "impayes_actuels": bool(impayes_actuels),
+                    "anciens_impayes": int(anciens_impayes),
                 })
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
@@ -169,7 +229,7 @@ def run_streamlit_app():
                 else:
                     st.session_state.step = 3
 
-    # Step 3
+    # --- Étape 3 ---
     elif st.session_state.step == 3:
         st.subheader("Étape 3 — Informations employeur")
         anciennete_employeur = st.number_input("Ancienneté chez l'employeur (mois)", min_value=0)
@@ -183,9 +243,9 @@ def run_streamlit_app():
         with col2:
             if st.button("Décision finale"):
                 st.session_state.form_data.update({
-                    "anciennete_employeur": anciennete_employeur,
+                    "anciennete_employeur": int(anciennete_employeur),
                     "employeur_connu": employeur_connu,
-                    "suspicion_employeur": suspicion_employeur,
+                    "suspicion_employeur": bool(suspicion_employeur),
                 })
                 resultat = decision_credit(st.session_state.form_data)
 
@@ -196,11 +256,11 @@ def run_streamlit_app():
                 else:
                     st.success(resultat)
 
-                # Store in history and reset to step 1
+                # Sauvegarde dans l'historique
                 st.session_state.historique.append({**st.session_state.form_data, "Décision": resultat})
                 st.session_state.step = 1
 
-    # History and export
+    # Affichage historique + export
     if st.session_state.historique:
         df = pd.DataFrame(st.session_state.historique)
         st.subheader("Historique des simulations")
@@ -218,7 +278,6 @@ def run_streamlit_app():
 # ------------------
 
 def run_cli_tests():
-    """Runs a set of test cases for the decision function and writes a CSV summary."""
     now = datetime.date.today()
     yesterday = now - datetime.timedelta(days=1)
     future = now + datetime.timedelta(days=365)
@@ -226,58 +285,62 @@ def run_cli_tests():
     test_cases = [
         {
             "name": "endettement_trop_eleve (rouge)",
-            "input": {"taux_endettement": 0.40},
+            "input": {"taux_endettement": 0.6, "duree_credit_mois": 12},
             "expected_contains": "Refus",
         },
         {
             "name": "CDD termine (rouge)",
-            "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": yesterday},
+            "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": yesterday, "duree_credit_mois": 12},
             "expected_contains": "Refus",
         },
         {
+            "name": "CDD assez long (ok)",
+            "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": future, "duree_credit_mois": 6},
+            "expected_contains": "ACCEPTE",
+        },
+        {
             "name": "client_trop_recent (rouge)",
-            "input": {"taux_endettement": 0.10, "anciennete_compte": 1},
+            "input": {"taux_endettement": 0.10, "anciennete_compte": 1, "duree_credit_mois": 12},
             "expected_contains": "Refus",
         },
         {
             "name": "impayes_actuels (rouge)",
-            "input": {"taux_endettement": 0.10, "impayes_actuels": True},
+            "input": {"taux_endettement": 0.10, "impayes_actuels": True, "duree_credit_mois": 12},
             "expected_contains": "Refus",
         },
         {
             "name": "anciens_impayes_trop (rouge)",
-            "input": {"taux_endettement": 0.10, "anciens_impayes": 2},
+            "input": {"taux_endettement": 0.10, "anciens_impayes": 2, "duree_credit_mois": 12},
             "expected_contains": "Refus",
         },
         {
             "name": "anciennete_employeur_court (rouge)",
-            "input": {"taux_endettement": 0.10, "anciennete_employeur": 2},
+            "input": {"taux_endettement": 0.10, "anciennete_employeur": 2, "duree_credit_mois": 12},
             "expected_contains": "Refus",
         },
         {
             "name": "employeur_non_fiable (orange)",
-            "input": {"taux_endettement": 0.05, "anciennete_employeur": 6, "employeur_connu": "Non"},
+            "input": {"taux_endettement": 0.05, "anciennete_employeur": 6, "employeur_connu": "Non", "duree_credit_mois": 12},
             "expected_contains": "ORANGE",
         },
         {
             "name": "suspicion_employeur (orange)",
-            "input": {"taux_endettement": 0.05, "anciennete_employeur": 24, "suspicion_employeur": True},
+            "input": {"taux_endettement": 0.05, "anciennete_employeur": 24, "suspicion_employeur": True, "duree_credit_mois": 12},
             "expected_contains": "ORANGE",
         },
         {
             "name": "accepte (ok)",
-            "input": {"taux_endettement": 0.10, "anciennete_compte": 12, "anciennete_employeur": 24},
+            "input": {"taux_endettement": 0.10, "anciennete_compte": 12, "anciennete_employeur": 24, "duree_credit_mois": 12},
             "expected_contains": "ACCEPTE",
         },
-        # Partial input tests (simulate early step checks)
         {
             "name": "partial_after_step1_no_rouge",
-            "input": {"taux_endettement": 0.20, "type_contrat": "CDI"},
+            "input": {"taux_endettement": 0.20, "type_contrat": "CDI", "duree_credit_mois": 12},
             "expected_contains": "ACCEPTE",
         },
         {
             "name": "partial_after_step1_cdd_expired (rouge)",
-            "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": yesterday},
+            "input": {"taux_endettement": 0.10, "type_contrat": "CDD", "date_fin_cdd": yesterday, "duree_credit_mois": 12},
             "expected_contains": "Refus",
         },
     ]
@@ -303,11 +366,9 @@ def run_cli_tests():
     df.to_csv(csv_path, index=False)
     print(f"\nSummary saved to: {csv_path}")
 
-    # Exit with non-zero code if any test failed so CI can catch it
     any_failed = not df["passed"].all()
     if any_failed:
         print("\nSome tests failed. Inspect 'historique_credit_cli.csv' for details.")
-        # Do not forcibly exit in interactive contexts, but return non-zero for scripts
         sys.exit(1)
     else:
         print("\nAll tests passed.")
@@ -319,14 +380,9 @@ def run_cli_tests():
 
 if __name__ == "__main__":
     if HAS_STREAMLIT:
-        # When executed with `streamlit run this_file.py` Streamlit will run and this branch will
-        # not be executed in the usual script manner. But if someone runs `python this_file.py`
-        # and streamlit is installed, we still provide the UI.
         run_streamlit_app()
     else:
-        print("Streamlit not installed — running CLI test suite instead.\n")
+        print("Streamlit not installé — lancement du mode CLI / tests...\n")
         run_cli_tests()
 
-# If the module is imported, do not run anything automatically. The Streamlit runner will
-# import this module and execute run_streamlit_app() because the top-level streamlit import
-# is deferred.
+# Fin du fichier
