@@ -2,9 +2,9 @@
 Credit Decision App
 
 Mise à jour Étape 2 :
-- Lorsque `changement_employeur` ou `amelioration_employeur` est vrai **et** que `taux_endettement > 0.25`,
-  la décision n’est plus un refus rouge mais une **condition orange**.
-- Le message est :
+- Si `changement_employeur` ou `amelioration_employeur` est Oui et que `taux_endettement > 0.25`,
+  alors l’utilisateur **ne peut pas continuer** le processus.
+- Un message orange (warning) s’affiche :
   "Condition (orange) : limiter le taux d'endettement à 25% car impayés anciens".
 """
 
@@ -148,6 +148,8 @@ def run_streamlit_app():
             resultat = decision_credit(st.session_state.form_data)
             if "Refus" in resultat:
                 st.error(resultat)
+            elif "Condition (orange)" in resultat:
+                st.warning(resultat)
             else:
                 st.session_state.step = 2
 
@@ -180,6 +182,8 @@ def run_streamlit_app():
                 resultat = decision_credit(st.session_state.form_data)
                 if "Refus" in resultat:
                     st.error(resultat)
+                elif "Condition (orange)" in resultat:
+                    st.warning(resultat)
                 elif "ORANGE" in resultat:
                     st.warning(resultat)
                 else:
