@@ -152,7 +152,7 @@ def run_streamlit_app():
     st.set_page_config(page_title="Simulation Crédit", layout="centered")
     st.title("📊 Simulation Octroi Crédit à la Consommation")
 
-    # state init
+    # --- State init (one-time) ---
     if "step" not in st.session_state:
         st.session_state.step = 0
     if "form_data" not in st.session_state:
@@ -166,29 +166,31 @@ def run_streamlit_app():
     if "show_history" not in st.session_state:
         st.session_state.show_history = False
 
-    # ---- Étape 0 : Identification (sans st.form) ----
+    # =========================
+    # Étape 0 — Identification
+    # =========================
     if st.session_state.step == 0:
         st.subheader("Étape 0 — Identification")
         num_client = st.text_input("Numéro client (8 chiffres, optionnel)", key="s0_num_client")
         nom_prenom = st.text_input("Nom et prénom du client (obligatoire)", key="s0_nom_prenom")
-        charge_clientele = st.text_input("Nom et prénom du chargé de clientèle (obligatoire)", value="Ahmed Diop", key="s0_charge_clientele")
+        charge_clientele = st.text_input(
+            "Nom et prénom du chargé de clientèle (obligatoire)", value="Ahmed Diop", key="s0_charge_clientele"
+        )
 
         if num_client and (not num_client.isdigit() or len(num_client) != 8):
             st.warning("Le numéro client doit contenir exactement 8 chiffres (ou laisser vide).")
 
-        cols = st.columns(2)
-        with cols[0]:
-            back0 = st.button("⬅ Retour", key="back0", disabled=True, use_container_width=True)
-        with cols[1]:
-            next0 = st.button("Suivant", key="next0", use_container_width=True)
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.button("⬅ Retour", key="s0_back", disabled=True, use_container_width=True)
+        with col_b:
+            next0 = st.button("Suivant", key="s0_next", use_container_width=True)
 
-        # Bouton Historique en bas, espacé
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        if st.button("🗂️ Voir l'historique des simulations", key="hist0"):
+        if st.button("🗂️ Voir l'historique des simulations", key="hist_step0"):
             st.session_state.show_history = True
 
         if next0:
-            # Validation après clic
             if not is_filled(nom_prenom) or not is_filled(charge_clientele):
                 st.error("Merci de renseigner le nom du client et le chargé de clientèle avant de continuer.")
             else:
@@ -199,33 +201,37 @@ def run_streamlit_app():
                 })
                 st.session_state.step = 1
 
-    # ---- Étape 1 : Données financières & calcul endettement (sans st.form) ----
+    # ======================================
+    # Étape 1 — Données financières (calc TE)
+    # ======================================
     elif st.session_state.step == 1:
         st.subheader("Étape 1 — Données financières")
         revenu, ok_rev = fcfa_input("Revenu mensuel (FCFA)", "_rev_fcfa", 700_000)
         charges, ok_chg = fcfa_input("Charges mensuelles (crédits, loyer, etc.) (FCFA)", "_chg_fcfa", 250_000)
         montant, ok_mnt = fcfa_input("Montant du crédit demandé (FCFA)", "_mnt_fcfa", 300_000)
-        duree_credit_mois = st.slider("Durée du crédit (mois)", min_value=1, max_value=120, value=12, key="dur_step1")
+        duree_credit_mois = st.slider("Durée du crédit (mois)", min_value=1, max_value=120, value=12, key="s1_duree")
 
         mensualite, taux_estime = calc_endettement_simplifie(revenu, charges, montant, duree_credit_mois)
         st.caption(f"Mensualité estimée (sans intérêts) : {fmt_fcfa(int(round(mensualite)))} FCFA")
         st.caption(f"Taux d'endettement estimé : {taux_estime*100:.1f}%")
 
-        type_contrat = st.selectbox("Type de contrat", ["CDI", "CDD"], key="contrat_step1")
+        type_contrat = st.selectbox("Type de contrat", ["CDI", "CDD"], key="s1_contrat")
         date_fin_cdd = None
         if type_contrat == "CDD":
-            date_fin_cdd = st.date_input("Date fin CDD (si CDD)", value=(datetime.date.today() + datetime.timedelta(days=180)), key="cdd_fin_step1")
+            date_fin_cdd = st.date_input(
+                "Date fin CDD (si CDD)", value=(datetime.date.today() + datetime.timedelta(days=180)), key="s1_cdd_fin"
+            )
 
         # Dates en coulisses pour la règle CDD
         date_debut_credit = datetime.date.today() + datetime.timedelta(days=15)
         date_fin_credit = add_months(date_debut_credit, int(duree_credit_mois))
 
-        cols = st.columns(2)
-        with cols[0]:
-            if st.button("⬅ Retour", key="back1", use_container_width=True):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("⬅ Retour", key="s1_back", use_container_width=True):
                 st.session_state.step = 0
-        with cols[1]:
-            if st.button("Suivant", key="next1", use_container_width=True):
+        with col_b:
+            if st.button("Suivant", key="s1_next", use_container_width=True):
                 valid = all([ok_rev, ok_chg, ok_mnt]) and revenu > 0 and duree_credit_mois >= 1
                 if type_contrat == "CDD" and date_fin_cdd is None:
                     valid = False
@@ -251,31 +257,33 @@ def run_streamlit_app():
                     st.session_state.step = 2
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        if st.button("🗂️ Voir l'historique des simulations", key="hist1"):
+        if st.button("🗂️ Voir l'historique des simulations", key="hist_step1"):
             st.session_state.show_history = True
 
-    # ---- Étape 2 : Compte / impayés (sans st.form) ----
+    # ==================================
+    # Étape 2 — Compte & Historique
+    # ==================================
     elif st.session_state.step == 2:
         st.subheader("Étape 2 — Compte & Historique")
-        anciennete_compte = st.slider("Ancienneté du compte (mois)", min_value=0, max_value=240, value=12, key="anc_compte")
-        impayes_actuels = st.checkbox("Impayés actuels (6 derniers mois)", key="imp_actuels")
-        impayes_anciens = st.checkbox("Impayés anciens (il y a plus de 6 mois)", key="imp_anciens")
+        anciennete_compte = st.slider("Ancienneté du compte (mois)", min_value=0, max_value=240, value=12, key="s2_anc_compte")
+        impayes_actuels = st.checkbox("Impayés actuels (6 derniers mois)", key="s2_imp_actuels")
+        impayes_anciens = st.checkbox("Impayés anciens (il y a plus de 6 mois)", key="s2_imp_anciens")
 
         changement_employeur = False
         amelioration_employeur = False
         if impayes_anciens:
             st.markdown("**Informations complémentaires (car impayés anciens cochés)**")
-            ch = st.radio("Changement d’employeur ?", ["Non", "Oui"], index=0, key="chg_emp")
-            am = st.radio("Amélioration de la situation de l’employeur ?", ["Non", "Oui"], index=0, key="am_emp")
+            ch = st.radio("Changement d’employeur ?", ["Non", "Oui"], index=0, key="s2_chg_emp")
+            am = st.radio("Amélioration de la situation de l’employeur ?", ["Non", "Oui"], index=0, key="s2_am_emp")
             changement_employeur = (ch == "Oui")
             amelioration_employeur = (am == "Oui")
 
-        cols = st.columns(2)
-        with cols[0]:
-            if st.button("⬅ Retour", key="back2", use_container_width=True):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("⬅ Retour", key="s2_back", use_container_width=True):
                 st.session_state.step = 1
-        with cols[1]:
-            if st.button("Suivant", key="next2", use_container_width=True):
+        with col_b:
+            if st.button("Suivant", key="s2_next", use_container_width=True):
                 st.session_state.form_data.update({
                     "anciennete_compte": int(anciennete_compte),
                     "impayes_actuels": bool(impayes_actuels),
@@ -291,26 +299,28 @@ def run_streamlit_app():
                 st.session_state.step = 3
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        if st.button("🗂️ Voir l'historique des simulations", key="hist2"):
+        if st.button("🗂️ Voir l'historique des simulations", key="hist_step2"):
             st.session_state.show_history = True
 
-    # ---- Étape 3 : Employeur & décision finale (sans st.form) ----
+    # ==================================
+    # Étape 3 — Employeur & décision
+    # ==================================
     elif st.session_state.step == 3:
         st.subheader("Étape 3 — Informations employeur & décision")
-        anciennete_employeur = st.slider("Ancienneté chez l'employeur (mois)", min_value=0, max_value=480, value=24, key="anc_emp")
+        anciennete_employeur = st.slider("Ancienneté chez l'employeur (mois)", min_value=0, max_value=480, value=24, key="s3_anc_emp")
         employeur_statut = st.selectbox(
             "L'employeur est-il connu ?",
             ["🟢 Connu - pas d'alerte", "🔴 Connu - Alerte rouge", "Inconnu pour l'instant"],
             index=0,
-            key="emp_statut",
+            key="s3_emp_statut",
         )
 
-        cols = st.columns(2)
-        with cols[0]:
-            if st.button("⬅ Retour", key="back3", use_container_width=True):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("⬅ Retour", key="s3_back", use_container_width=True):
                 st.session_state.step = 2
-        with cols[1]:
-            if st.button("Décision finale", key="decide", use_container_width=True):
+        with col_b:
+            if st.button("Décision finale", key="s3_decide", use_container_width=True):
                 st.session_state.form_data.update({
                     "anciennete_employeur": int(anciennete_employeur),
                     "employeur_statut": employeur_statut,
@@ -341,20 +351,28 @@ def run_streamlit_app():
                 st.session_state.step = 0
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        if st.button("🗂️ Voir l'historique des simulations", key="hist3"):
+        if st.button("🗂️ Voir l'historique des simulations", key="hist_step3"):
             st.session_state.show_history = True
 
-    # ---- Historique (affichage à la demande) ----
+    # ==============================
+    # Historique (à la demande)
+    # ==============================
     if st.session_state.show_history and st.session_state.historique:
         df = pd.DataFrame(st.session_state.historique)
         st.subheader("Historique des simulations")
         st.dataframe(df)
-        st.download_button("📥 Télécharger l'historique (CSV)", data=df.to_csv(index=False), file_name="historique_credit.csv", mime="text/csv")
-        if st.button("Masquer l'historique", key="hide_hist"):
+        st.download_button(
+            "📥 Télécharger l'historique (CSV)", data=df.to_csv(index=False), file_name="historique_credit.csv", mime="text/csv"
+        )
+        if st.button("Masquer l'historique", key="hist_hide"):
             st.session_state.show_history = False
 
 
 if __name__ == "__main__":
+    if HAS_STREAMLIT:
+        run_streamlit_app()
+    else:
+        print("Streamlit non installé — version UI non exécutée.")
     if HAS_STREAMLIT:
         run_streamlit_app()
     else:
