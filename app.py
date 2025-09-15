@@ -166,6 +166,7 @@ def run_streamlit_app():
     # State init
     if "step" not in st.session_state:
         st.session_state.step = 0
+                st.experimental_rerun()
     if "form_data" not in st.session_state:
         st.session_state.form_data = {}
     if "historique" not in st.session_state:
@@ -211,6 +212,7 @@ def run_streamlit_app():
                     "charge_clientele": charge_clientele.strip(),
                 })
                 st.session_state.step = 1
+                st.experimental_rerun()
 
     # ======================================
     # Étape 1 — Données financières (calc TE)
@@ -241,6 +243,7 @@ def run_streamlit_app():
         with col_a:
             if st.button("⬅ Retour", key="s1_back", use_container_width=True):
                 st.session_state.step = 0
+                st.experimental_rerun()
         with col_b:
             if st.button("Suivant", key="s1_next", use_container_width=True):
                 valid = all([ok_rev, ok_chg, ok_mnt]) and revenu > 0 and duree_credit_mois >= 1
@@ -266,6 +269,7 @@ def run_streamlit_app():
                     for msg in r + o:
                         st.warning(msg)
                     st.session_state.step = 2
+                st.experimental_rerun()
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
         if st.button("🗂️ Voir l'historique des simulations", key="hist_step1"):
@@ -293,6 +297,7 @@ def run_streamlit_app():
         with col_a:
             if st.button("⬅ Retour", key="s2_back", use_container_width=True):
                 st.session_state.step = 1
+                st.experimental_rerun()
         with col_b:
             if st.button("Suivant", key="s2_next", use_container_width=True):
                 st.session_state.form_data.update({
@@ -308,6 +313,7 @@ def run_streamlit_app():
                 for msg in r + o:
                     st.warning(msg)
                 st.session_state.step = 3
+                st.experimental_rerun()
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
         if st.button("🗂️ Voir l'historique des simulations", key="hist_step2"):
@@ -330,6 +336,7 @@ def run_streamlit_app():
         with col_a:
             if st.button("⬅ Retour", key="s3_back", use_container_width=True):
                 st.session_state.step = 2
+                st.experimental_rerun()
         with col_b:
             if st.button("Décision finale", key="s3_decide", use_container_width=True):
                 st.session_state.form_data.update({
@@ -360,6 +367,7 @@ def run_streamlit_app():
                 st.session_state.alerts_red = []
                 st.session_state.alerts_orange = []
                 st.session_state.step = 0
+                st.experimental_rerun()
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
         if st.button("🗂️ Voir l'historique des simulations", key="hist_step3"):
