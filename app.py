@@ -156,6 +156,7 @@ def final_decision_text(rouges: List[str], oranges: List[str]) -> Tuple[str, str
         return "orange", f"Risque de refus de crédit pour motif(s) suivant(s) :\n{motifs}"
     return "green", "Crédit accepté"
 
+
 # ------------------ Streamlit UI ------------------
 
 def run_streamlit_app():
